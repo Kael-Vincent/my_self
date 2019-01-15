@@ -1,0 +1,31 @@
+#创建普通索引,如果fieldname是char or varchar的话length可以小于字段长度，如果是blob or text的话要指定长度。
+create index indexname on tablename ('fieldname'(length))
+alter table tablename add index indexname('fieldname'(length))
+#创建唯一索引,允许有null
+create unique index indexname on 'tablename'('fieldname'(length))
+alter table tablename add unique(column_list)
+#创建主键索引，不允许有null
+create pramary index on tablename
+#创建组合索引
+create index indexname on tablename(column_list)
+#删除索引
+drop index indexname on tablename
+#展示索引
+show index from tablename
+
+#创建视图
+create view viewname(column_list) as select column_list 
+#修改视图
+create or replace view viewname as select column_list
+#查看视图
+show tables
+#删除视图
+drop view if exists viewname
+
+
+#事务
+start transaction；
+if sql：
+    commit（）
+else：
+    rollback（）

@@ -1,0 +1,77 @@
+一、一般来说Nginx配置文件中对优化比较有作用的主要是以下几项：
+1、Nginx进程数，建议按照CPU数目指定，一般跟CPU核数相同或为它的倍数；
+woker_proccesses 8；
+2、为每个进程分配CPU，使用二进制表示，2核为01，4核为0001,8核为00000001：
+worker_cpu_affinity 00000001 00000010 00000100 00001000 00010000 00100000 01000000 10000000;
+3、一个Nginx进程打开的最多文件描述符数目，理论值应该是系统的最多打开文件数（ulimit-n）与Nginx进程数相处，
+最好与ulimit-n的值保持一致：
+woker_rlimit_nofile 65535；
+4、使用epoll模型搞笑处理异步事件：
+use epoll；
+5、每个进程允许的最大连接数，理论上每台Nginx服务器的最大连接数为woker_processes*woker_connection：
+woker_connection 65535；
+6、http连接超时时间默认为60s：
+keepalive_timeout 60；
+7、客户端请求头的缓存区大小：
+client_header_buffer_size 4k；
+8、为打开文件制定缓存，默认是关闭状态，max为缓存数量，建议和打开文件数量一致，inactive是只经过多长时间文件没被请求后删除缓存：
+open_file_cache max 102400 inactive=20；
+9、设置检查缓存有效信息的周期：
+open_file_cache_valid 30s；
+10、open_file_cache指令中的inactive参数时间内文件的最少使用次数，如果超过这个数字，文件描述符一直是在缓存中打开的，如上例，如果有一个文件在inactive时间内一次没被使用，它将被移除。
+open_file_cache_min_uses 1;
+11、隐藏响应头重的有关操作系统和web server（Nginx）版本号的信息，这样对于安全性是有好处的：
+server_tokens off；
+12、告诉nginx在一个数据包里发送所有头文件，而不一个接一个的发送。就是说数据包不会马上传送出去，等到数据包最大时，一次性的传输出去，这样有助于解决网络堵塞。
+tcp_nopush on; 
+13、告诉nginx不要缓存数据，而是一段一段的发送--当需要及时发送数据时，就应该给应用设置这个属性，这样发送一小块数据信息时就不能立即得到返回值。
+tcp_nodelay on;
+
+
+Nginx安全配置小提示：
+1）禁用autoindex模块。这个可能在你使用的Nginx版本中已经更改了，如果没有的话只需在配置文件的location块中增加autoindex off;声明即可。
+2）禁用服务器上的ssi (服务器端引用)。这个可以通过在location块中添加ssi off; 。
+3）关闭服务器标记。如果开启的话（默认情况下）所有的错误页面都会显示服务器的版本和信息。将server_tokens off;声明添加到Nginx配置文件来解决这个问题。
+4）在配置文件中设置自定义缓存以限制缓冲区溢出攻击的可能性。
+client_body_buffer_size  1K;
+client_header_buffer_size 1k;
+client_max_body_size 1k;
+large_client_header_buffers 2 1k;
+5）将timeout设低来防止DOS攻击。所有这些声明都可以放到主配置文件中。
+client_body_timeout   10;
+client_header_timeout 10;
+keepalive_timeout     65;
+send_timeout          10;
+6）限制用户连接数来预防DOS攻击。
+limit_zone slimits $binary_remote_addr 5m;
+limit_conn slimits 5;
+7）试着避免使用HTTP认证。HTTP认证默认使用crypt，它的哈希并不安全。如果你要用的话就用MD5（这也不是个好选择但负载方面比crypt好） 。
+
+
+二、关于fastCGI（FastCommonGatewayInterface 快速通用网关接口）的几个命令
+）这个指令为FastCGI缓存指定一个路径，目录结构等级，关键字区域存储时间和非活动删除时间。
+fastcgi_cache_path /usr/local/nginx/fastcgi_cache levels=1:2 keys_zone=TEST:10m inactive=5m;
+2）指定连接到后端FastCGI的超时时间。
+fastcgi_connect_timeout 300;
+3）向FastCGI传送请求的超时时间，这个值是指已经完成两次握手后向FastCGI传送请求的超时时间。
+fastcgi_send_timeout 300;
+4）接收FastCGI应答的超时时间，这个值是指已经完成两次握手后接收FastCGI应答的超时时间。
+fastcgi_read_timeout 300;
+5）指定读取FastCGI应答第一部分 需要用多大的缓冲区，这里可以设置为fastcgi_buffers指令指定的缓冲区大小，上面的指令指定它将使用1个 16k的缓冲区去读取应答的第一部分，即应答头，其实这个应答头一般情况下都很小（不会超过1k），但是你如果在fastcgi_buffers指令中指 定了缓冲区的大小，那么它也会分配一个fastcgi_buffers指定的缓冲区大小去缓存。
+fastcgi_buffer_size 16k;
+6）指定本地需要用多少和多大的缓冲区来 缓冲FastCGI的应答，如上所示，如果一个php脚本所产生的页面大小为256k，则会为其分配16个16k的缓冲区来缓存，如果大于256k，增大 于256k的部分会缓存到fastcgi_temp指定的路径中， 当然这对服务器负载来说是不明智的方案，因为内存中处理数据速度要快于硬盘，通常这个值 的设置应该选择一个你的站点中的php脚本所产生的页面大小的中间值，比如你的站点大部分脚本所产生的页面大小为 256k就可以把这个值设置为16 16k，或者4 64k 或者64 4k，但很显然，后两种并不是好的设置方法，因为如果产生的页面只有32k，如果用4 64k它会分配1个64k的缓冲区去缓存，而如果使用64 4k它会分配8个4k的缓冲区去缓存，而如果使用16 16k则它会分配2个16k去缓存页面，这样看起来似乎更加合理。
+fastcgi_buffers 16 16k;
+7）这个指令我也不知道是做什么用，只知道默认值是fastcgi_buffers的两倍。
+fastcgi_busy_buffers_size 32k;
+8）在写入fastcgi_temp_path时将用多大的数据块，默认值是fastcgi_buffers的两倍。
+fastcgi_temp_file_write_size 32k;
+9）开启FastCGI缓存并且为其制定一个名称。个人感觉开启缓存非常有用，可以有效降低CPU负载，并且防止502错误。但是这个缓存会引起很多问题，因为它缓存的是动态页面。具体使用还需根据自己的需求。
+fastcgi_cache TEST
+10）为指定的应答代码指定缓存时间，如上例中将200，302应答缓存一小时，301应答缓存1天，其他为1分钟。
+fastcgi_cache_valid 200 302 1h;
+fastcgi_cache_valid 301 1d;
+fastcgi_cache_valid any 1m;
+11）缓存在fastcgi_cache_path指令inactive参数值时间内的最少使用次数，如上例，如果在5分钟内某文件1次也没有被使用，那么这个文件将被移除。
+fastcgi_cache_min_uses 1;
+12）不知道这个参数的作用，猜想应该是让nginx知道哪些类型的缓存是没用的。
+fastcgi_cache_use_stale error timeout invalid_header http_500;
